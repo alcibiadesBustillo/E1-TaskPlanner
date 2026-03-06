@@ -12,7 +12,7 @@ private:
     int insertionOrder;
 
 public:
-    Task(const std::string& name = "", int priority = 1, int duration = 1, int insertionOrder = 0);
+    Task(const std::string& name = "EMPTY", int priority = 1, int duration = 1, int insertionOrder = 0);
 
     std::string getName() const;
     int getPriority() const;
