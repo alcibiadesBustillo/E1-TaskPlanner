@@ -1,0 +1,224 @@
+name: Autograding Tests
+
+on:
+  - push
+  - workflow_dispatch
+  - repository_dispatch
+
+permissions:
+  checks: write
+  actions: read
+  contents: read
+
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-classroom[bot]'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          for f in Task.h Task.cpp TaskList.h TaskList.cpp planner.h planner.cpp; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required file: $f"
+              exit 1
+            fi
+          done
+
+      - name: Download doctest.h
+        run: |
+          mkdir -p third_party
+          curl -L -o third_party/doctest.h \
+            https://raw.githubusercontent.com/doctest/doctest/master/doctest/doctest.h
+
+      - name: Inject private tests
+        run: |
+          cat << 'EOF' > tests_private.cpp
+          #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+          #include "third_party/doctest.h"
+
+          #include <stdexcept>
+          #include <sstream>
+          #include <string>
+
+          #include "Task.h"
+          #include "TaskList.h"
+          #include "planner.h"
+
+          TEST_CASE("1) Default TaskList starts empty") {
+              TaskList list;
+              CHECK(list.empty() == true);
+              CHECK(list.getSize() == 0);
+              CHECK(list.getCapacity() == 4);
+          }
+
+          TEST_CASE("2) Constructor with custom capacity") {
+              TaskList list(8);
+              CHECK(list.empty() == true);
+              CHECK(list.getSize() == 0);
+              CHECK(list.getCapacity() == 8);
+          }
+
+          TEST_CASE("3) Invalid TaskList capacity throws") {
+              CHECK_THROWS_AS(TaskList(0), std::invalid_argument);
+              CHECK_THROWS_AS(TaskList(-2), std::invalid_argument);
+          }
+
+          TEST_CASE("4) Task constructor validates input") {
+              CHECK_THROWS_AS(Task("", 5, 10, 0), std::invalid_argument);
+              CHECK_THROWS_AS(Task("BadPriorityLow", 0, 10, 0), std::invalid_argument);
+              CHECK_THROWS_AS(Task("BadPriorityHigh", 11, 10, 0), std::invalid_argument);
+              CHECK_THROWS_AS(Task("BadDuration", 5, 0, 0), std::invalid_argument);
+          }
+
+          TEST_CASE("5) Task getters work correctly") {
+              Task t("Study", 9, 30, 4);
+              CHECK(t.getName() == "Study");
+              CHECK(t.getPriority() == 9);
+              CHECK(t.getDuration() == 30);
+              CHECK(t.getInsertionOrder() == 4);
+          }
+
+          TEST_CASE("6) operator== compares all fields") {
+              Task a("Study", 9, 30, 0);
+              Task b("Study", 9, 30, 0);
+              Task c("Study", 9, 31, 0);
+
+              CHECK(a == b);
+              CHECK_FALSE(a == c);
+          }
+
+          TEST_CASE("7) operator< uses correct ordering rules") {
+              Task low("Low", 5, 10, 0);
+              Task high("High", 9, 50, 1);
+              CHECK(low < high);
+
+              Task longTask("Long", 8, 60, 0);
+              Task shortTask("Short", 8, 20, 1);
+              CHECK(longTask < shortTask);
+
+              Task later("Later", 7, 15, 3);
+              Task earlier("Earlier", 7, 15, 1);
+              CHECK(later < earlier);
+          }
+
+          TEST_CASE("8) addTask increases size") {
+              TaskList list;
+              list.addTask(Task("Study", 8, 30, 0));
+              list.addTask(Task("Email", 5, 10, 1));
+
+              CHECK(list.getSize() == 2);
+              CHECK(list.empty() == false);
+          }
+
+          TEST_CASE("9) resize occurs when capacity is exceeded") {
+              TaskList list;
+              list.addTask(Task("A", 1, 10, 0));
+              list.addTask(Task("B", 2, 10, 1));
+              list.addTask(Task("C", 3, 10, 2));
+              list.addTask(Task("D", 4, 10, 3));
+              list.addTask(Task("E", 5, 10, 4));
+
+              CHECK(list.getSize() == 5);
+              CHECK(list.getCapacity() >= 5);
+          }
+
+          TEST_CASE("10) peekNextTask does not remove element") {
+              TaskList list;
+              list.addTask(Task("TaskA", 7, 30, 0));
+              list.addTask(Task("TaskB", 9, 20, 1));
+
+              CHECK(list.peekNextTask().getName() == "TaskB");
+              CHECK(list.getSize() == 2);
+          }
+
+          TEST_CASE("11) removeNextTask follows correct priority rules") {
+              TaskList list;
+              list.addTask(Task("Project", 8, 90, 0));
+              list.addTask(Task("Quiz", 10, 20, 1));
+              list.addTask(Task("Email", 8, 15, 2));
+              list.addTask(Task("Reading", 10, 20, 3));
+
+              CHECK(list.removeNextTask().getName() == "Quiz");
+              CHECK(list.removeNextTask().getName() == "Reading");
+              CHECK(list.removeNextTask().getName() == "Email");
+              CHECK(list.removeNextTask().getName() == "Project");
+              CHECK(list.empty() == true);
+          }
+
+          TEST_CASE("12) peekNextTask and removeNextTask throw on empty list") {
+              TaskList list;
+              CHECK_THROWS_AS(list.peekNextTask(), std::underflow_error);
+              CHECK_THROWS_AS(list.removeNextTask(), std::underflow_error);
+          }
+
+          TEST_CASE("13) clear empties the list") {
+              TaskList list;
+              list.addTask(Task("A", 1, 10, 0));
+              list.addTask(Task("B", 2, 20, 1));
+
+              list.clear();
+
+              CHECK(list.empty() == true);
+              CHECK(list.getSize() == 0);
+          }
+
+          TEST_CASE("14) Copy constructor performs deep copy") {
+              TaskList original;
+              original.addTask(Task("A", 5, 10, 0));
+              original.addTask(Task("B", 9, 20, 1));
+
+              TaskList copy(original);
+
+              CHECK(copy.getSize() == 2);
+              CHECK(copy.peekNextTask().getName() == "B");
+
+              original.removeNextTask();
+
+              CHECK(copy.getSize() == 2);
+              CHECK(copy.peekNextTask().getName() == "B");
+          }
+
+          TEST_CASE("15) Assignment operator performs deep copy") {
+              TaskList original;
+              original.addTask(Task("A", 5, 10, 0));
+              original.addTask(Task("B", 9, 20, 1));
+
+              TaskList assigned;
+              assigned = original;
+
+              CHECK(assigned.getSize() == 2);
+              CHECK(assigned.peekNextTask().getName() == "B");
+
+              original.removeNextTask();
+
+              CHECK(assigned.getSize() == 2);
+              CHECK(assigned.peekNextTask().getName() == "B");
+          }
+
+          TEST_CASE("16) buildSchedule returns exact expected format") {
+              TaskList list;
+              list.addTask(Task("Project", 8, 90, 0));
+              list.addTask(Task("Quiz", 10, 20, 1));
+              list.addTask(Task("Email", 8, 15, 2));
+              list.addTask(Task("Reading", 10, 20, 3));
+
+              std::string expected =
+                  "1. Quiz - priority 10 - duration 20\n"
+                  "2. Reading - priority 10 - duration 20\n"
+                  "3. Email - priority 8 - duration 15\n"
+                  "4. Project - priority 8 - duration 90";
+
+              CHECK(buildSchedule(list) == expected);
+              CHECK(list.empty() == true);
+          }
+          EOF
+
+      - name: Build & run tests
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -pedantic \
+            tests_private.cpp Task.cpp TaskList.cpp planner.cpp -o tests
+          ./tests
