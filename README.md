@@ -90,6 +90,7 @@ Si algún valor es inválido, debe lanzar `std::invalid_argument`.
 ### `TaskList`
 - La capacidad por defecto debe ser 4
 - Si el arreglo se llena, la capacidad debe duplicarse
+- Si al llamar `addTask` no hay espacio suficiente, su implementación debe redimensionar la estructura automáticamente antes de insertar la nueva tarea
 - `peekNextTask()` y `removeNextTask()` sobre una lista vacía deben lanzar `std::underflow_error`
 - Debe implementar correctamente copia profunda
 
